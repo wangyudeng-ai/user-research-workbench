@@ -13,6 +13,26 @@ html,body{height:100%}
   #printArea, #printArea *{visibility:visible}
   #printArea{position:absolute;left:0;top:0;width:100%;background:#fff}
 }
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .flex { 
+        flex-direction: column; 
+    }
+    nav.w-72 { 
+        width: 100% !important; 
+        height: auto !important; 
+        border-right: none; 
+        border-bottom: 1px solid #f3f4f6; 
+    }
+    .main-content { 
+        padding: 15px; 
+    }
+    /* 让弹窗在手机上居中且不遮挡 */
+    .modal-content {
+        width: 90% !important;
+        margin: 20% auto !important;
+    }
+}
 </style>
 </head>
 <body class="bg-[#F7F7F5] text-black antialiased">
