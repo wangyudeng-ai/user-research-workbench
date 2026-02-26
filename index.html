@@ -1,0 +1,1884 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用户研究管理工具</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif}
+html,body{height:100%}
+@media print{
+  body *{visibility:hidden}
+  #printArea, #printArea *{visibility:visible}
+  #printArea{position:absolute;left:0;top:0;width:100%;background:#fff}
+}
+</style>
+</head>
+<body class="bg-[#F7F7F5] text-black antialiased">
+<div class="h-screen flex">
+<nav class="w-72 bg-white border-r border-gray-100 flex flex-col">
+<div class="px-4 pt-4 pb-3">
+<div class="flex items-center gap-2">
+<span class="text-2xl">📁</span>
+<div class="text-2xl font-bold">用户研究工作台</div>
+</div>
+</div>
+<div class="px-4 pb-3 border-b border-gray-100">
+<div class="text-sm font-medium">项目导航</div>
+<button id="goHome" class="mt-2 w-full rounded-md border border-gray-300 bg-white text-gray-700 py-2 text-sm hover:bg-gray-100">首页概览</button>
+<button id="createProject" class="mt-3 w-full rounded-md bg-black text-white py-2 text-sm">新建项目</button>
+</div>
+<ul id="projectList" class="flex-1 overflow-y-auto p-2 space-y-1"></ul>
+<div class="border-t border-gray-100 p-3 relative">
+<button id="aboutBtn" class="absolute -top-10 left-3 z-10 rounded-full border border-gray-200 bg-white text-gray-700 w-8 h-8 shadow flex items-center justify-center hover:bg-gray-50" title="作品说明">?</button>
+<div class="text-xs text-gray-500 mb-2">数据备份与恢复</div>
+<div class="flex items-center gap-2">
+<button id="backupBtn" class="text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200">备份数据</button>
+<button id="restoreBtn" class="text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200">恢复数据</button>
+</div>
+<input id="restoreInput" type="file" accept="application/json" class="hidden" />
+</div>
+</nav>
+<main class="flex-1">
+<header class="px-6 py-4 border-b border-gray-100">
+<div id="currentProjectName" class="text-xl font-medium"></div>
+</header>
+<section id="contentArea" class="p-6"></section>
+</main>
+</div>
+<script>
+const LS_KEY='urmt.projects';
+const LS_SELECTED='urmt.selected';
+let projects=[];
+let selected=null;
+let _openTarget=null;
+function load(){
+ const raw=localStorage.getItem(LS_KEY);
+ projects=raw?JSON.parse(raw):[];
+ const s=localStorage.getItem(LS_SELECTED);
+ selected=s&&s.length?s:null;
+ projects.forEach(p=>{
+  if(p.title===undefined) p.title=p.name||'';
+  if(p.description===undefined) p.description='';
+  if(p.insights===undefined) p.insights='';
+  if(p.interviews===undefined) p.interviews=[];
+  if(p.interviewTemplate===undefined) p.interviewTemplate=[];
+   if(p.surveys===undefined) p.surveys=[];
+   if(p.focusGroups===undefined) p.focusGroups=[];
+   if(p.focusOutlineTemplate===undefined) p.focusOutlineTemplate=[];
+   if(p.surveyLastModified===undefined) p.surveyLastModified='';
+   if(p.interviewLastModified===undefined) p.interviewLastModified='';
+   if(p.focusLastModified===undefined) p.focusLastModified='';
+   if(p.updatedAt===undefined) p.updatedAt=Date.now();
+   if(p.surveyUpdatedAt===undefined) p.surveyUpdatedAt=0;
+   if(p.interviewUpdatedAt===undefined) p.interviewUpdatedAt=0;
+   if(p.focusUpdatedAt===undefined) p.focusUpdatedAt=0;
+ });
+ save();
+}
+function save(){
+ localStorage.setItem(LS_KEY,JSON.stringify(projects));
+ localStorage.setItem(LS_SELECTED,selected?selected:'');
+}
+ function nowMs(){ return Date.now(); }
+ function relativeTime(ts){
+  if(!ts) return '';
+  const diff=Date.now()-ts;
+  const m=Math.floor(diff/60000);
+  if(m<1) return '刚刚';
+  if(m<60) return `${m}分钟前`;
+  const h=Math.floor(m/60);
+  if(h<24) return `${h}小时前`;
+  const d=Math.floor(h/24);
+  if(d===1) return '昨天';
+  if(d<7) return `${d}天前`;
+  const dt=new Date(ts);
+  const y=dt.getFullYear(), mm=String(dt.getMonth()+1).padStart(2,'0'), dd=String(dt.getDate()).padStart(2,'0');
+  return `${y}-${mm}-${dd}`;
+ }
+function renderProjects(){
+ const ul=document.getElementById('projectList');
+ ul.innerHTML='';
+ const sorted=[...projects].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+ sorted.forEach(p=>{
+  const li=document.createElement('li');
+  li.className='group relative flex items-center justify-between rounded-md px-3 py-2 cursor-pointer hover:bg-gray-50';
+  const left=document.createElement('div');
+  left.className='flex items-start gap-2 flex-1';
+  const dot=document.createElement('div');
+  dot.className='w-2 h-2 rounded-full bg-gray-300';
+  const nameWrap=document.createElement('div');
+  nameWrap.className='flex-1 flex flex-col';
+  const name=document.createElement('button');
+  name.className='text-sm text-left';
+  name.textContent=p.name;
+  name.onclick=()=>{selected=p.id; save(); render();};
+  const sub=document.createElement('div');
+  sub.className='text-[10px] text-gray-300';
+  sub.textContent=relativeTime(p.updatedAt)||'';
+  nameWrap.appendChild(name);
+  nameWrap.appendChild(sub);
+  left.appendChild(dot);
+  left.appendChild(nameWrap);
+  const right=document.createElement('div');
+  right.className='flex items-center gap-1 opacity-0 group-hover:opacity-100 transition';
+  const more=document.createElement('button');
+  more.className='text-xs px-2 py-1 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-100';
+  more.textContent='⋮';
+  const menu=document.createElement('div');
+  menu.className='hidden absolute z-50 right-2 top-full mt-1 w-32 rounded-md border border-gray-200 bg-white shadow-lg';
+  const itemRename=document.createElement('button');
+  itemRename.className='w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50';
+  itemRename.textContent='重命名';
+  itemRename.onclick=(e)=>{
+    e.stopPropagation();
+    const val=prompt('重命名项目',p.name);
+    if(val&&val.trim()){
+      p.name=val.trim();
+      save(); render();
+    }
+    menu.classList.add('hidden');
+  };
+  const itemDelete=document.createElement('button');
+  itemDelete.className='w-full text-left px-3 py-2 text-xs hover:bg-gray-50 text-red-600';
+  itemDelete.textContent='删除';
+  itemDelete.onclick=(e)=>{
+    e.stopPropagation();
+    if(confirm('确定要删除该项目及所有研究记录吗？此操作不可撤销。')){
+      projects=projects.filter(x=>x.id!==p.id);
+      if(selected===p.id) selected=null;
+      save(); render();
+    }
+    menu.classList.add('hidden');
+  };
+  menu.appendChild(itemRename);
+  menu.appendChild(itemDelete);
+  more.onclick=(e)=>{
+    e.stopPropagation();
+    if(menu.classList.contains('hidden')){
+      menu.classList.remove('hidden');
+      const onWinClick=(ev)=>{
+        if(!menu.contains(ev.target) && ev.target!==more){
+          menu.classList.add('hidden');
+          window.removeEventListener('click', onWinClick);
+        }
+      };
+      window.addEventListener('click', onWinClick);
+    }else{
+      menu.classList.add('hidden');
+    }
+  };
+  right.appendChild(more);
+  li.appendChild(left);
+  li.appendChild(right);
+  li.appendChild(menu);
+  ul.appendChild(li);
+ });
+}
+function createInfoCard(label,field,placeholder){
+ const proj=projects.find(x=>x.id===selected);
+ const card=document.createElement('div');
+ card.className='rounded-lg border border-gray-200 bg-gray-50 p-4';
+ const head=document.createElement('div');
+ head.className='flex items-center justify-between mb-2';
+ const t=document.createElement('div');
+ t.className='text-sm font-medium';
+ t.textContent=label;
+ const btn=document.createElement('button');
+ btn.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ btn.textContent='编辑';
+ head.appendChild(t);
+ head.appendChild(btn);
+ const display=document.createElement('div');
+ const val=proj[field]||'';
+ display.className=val.trim()? 'text-sm leading-6 text-gray-700' : 'text-sm leading-6 text-gray-400';
+ display.textContent=val.trim()? val : placeholder;
+ const ta=document.createElement('textarea');
+ ta.className='hidden w-full mt-2 rounded border border-gray-200 bg-white p-2 text-sm leading-6';
+ ta.value=val;
+ ta.placeholder=placeholder;
+ let editing=false;
+ btn.onclick=()=>{
+  editing=!editing;
+  if(editing){
+   btn.textContent='完成';
+   display.classList.add('hidden');
+   ta.classList.remove('hidden');
+   ta.focus();
+  }else{
+   btn.textContent='编辑';
+   display.classList.remove('hidden');
+   ta.classList.add('hidden');
+   const v=ta.value.trim();
+   proj[field]=v;
+   save();
+   display.textContent=v? v : placeholder;
+   display.className=v? 'text-sm leading-6 text-gray-700' : 'text-sm leading-6 text-gray-400';
+  }
+ };
+ ta.oninput=()=>{
+  proj[field]=ta.value;
+  save();
+ };
+ card.appendChild(head);
+ card.appendChild(display);
+ card.appendChild(ta);
+ return card;
+}
+function renderHeaderTitle(proj){
+ const header=document.getElementById('currentProjectName');
+ header.innerHTML='';
+ const wrap=document.createElement('div');
+ wrap.className='flex items-center gap-2';
+ const nameSpan=document.createElement('span');
+ nameSpan.className='text-xl font-medium';
+ nameSpan.textContent=(proj.title||proj.name||'');
+ const editBtn=document.createElement('button');
+ editBtn.className='rounded-md bg-transparent border border-transparent text-gray-500 px-2 py-1 text-xs hover:text-gray-700';
+ editBtn.textContent='✏️';
+ const input=document.createElement('input');
+ input.className='hidden text-xl font-medium bg-white border border-gray-300 rounded px-2 py-1';
+ input.value=(proj.title||proj.name||'');
+ let editing=false;
+ editBtn.onclick=()=>{
+  editing=!editing;
+  if(editing){
+   nameSpan.classList.add('hidden');
+   input.classList.remove('hidden');
+   input.focus();
+  }else{
+   nameSpan.classList.remove('hidden');
+   input.classList.add('hidden');
+   const v=input.value.trim();
+   proj.title=v||proj.name||'';
+   save(); render();
+  }
+ };
+ input.oninput=()=>{
+  proj.title=input.value;
+  save();
+ };
+ wrap.appendChild(nameSpan);
+ wrap.appendChild(editBtn);
+ wrap.appendChild(input);
+ header.appendChild(wrap);
+}
+function renderContent(){
+ const title=document.getElementById('currentProjectName');
+ const area=document.getElementById('contentArea');
+ if(!selected){
+  title.textContent='';
+  area.innerHTML='';
+  const wrap=document.createElement('div');
+  wrap.className='max-w-3xl mx-auto';
+  const searchBox=document.createElement('div');
+  searchBox.className='flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2';
+  const icon=document.createElement('span');
+  icon.textContent='🔎';
+  const input=document.createElement('input');
+  input.className='flex-1 outline-none text-sm';
+  input.placeholder='搜索访谈、问卷或焦点小组内容...';
+  searchBox.appendChild(icon);
+  searchBox.appendChild(input);
+  const results=document.createElement('div');
+  results.className='mt-4 space-y-2';
+  function renderDashboard(){
+    results.innerHTML='';
+    const pCount=projects.length;
+    let iCount=0; let sCount=0;
+    projects.forEach(p=>{ iCount+=(p.interviews||[]).length; sCount+=(p.surveys||[]).length; });
+    const stats=document.createElement('div');
+    stats.className='grid grid-cols-1 md:grid-cols-3 gap-3';
+    const statCard=(label,value)=>{
+      const d=document.createElement('div');
+      d.className='rounded-lg border border-gray-200 bg-white p-4';
+      d.innerHTML=`<div class="text-xs text-gray-500">${label}</div><div class="mt-1 text-2xl font-semibold">${value}</div>`;
+      return d;
+    };
+    stats.appendChild(statCard('项目总数',pCount));
+    stats.appendChild(statCard('累计访谈',iCount));
+    stats.appendChild(statCard('累计问卷',sCount));
+    results.appendChild(stats);
+    const board=document.createElement('div');
+    board.className='mt-6 rounded-lg border border-gray-200 bg-white p-4';
+    const title=document.createElement('div');
+    title.className='text-sm font-medium mb-3';
+    title.textContent='项目进度看板';
+    board.appendChild(title);
+    const list=document.createElement('div');
+    list.className='space-y-3';
+    function calcProgress(p){
+      let pct=0;
+      if((p.description||'').trim()) pct+=10;
+      if((p.insights||'').trim()) pct+=10;
+      pct+=Math.min(((p.interviews||[]).length)*20,60);
+      pct+=Math.min(((p.surveys||[]).length)*20,20);
+      return Math.min(pct,100);
+    }
+    projects.forEach(p=>{
+      const row=document.createElement('button');
+      row.className='w-full text-left rounded-md border border-gray-100 bg-white px-3 py-2 hover:border-gray-200';
+      const top=document.createElement('div');
+      top.className='text-sm font-medium';
+      top.textContent=p.name;
+      const barWrap=document.createElement('div');
+      barWrap.className='mt-2 h-1.5 rounded bg-gray-200';
+      const fill=document.createElement('div');
+      fill.className='h-1.5 rounded bg-black';
+      const pct=calcProgress(p);
+      fill.style.width=pct+'%';
+      barWrap.appendChild(fill);
+      row.appendChild(top);
+      row.appendChild(barWrap);
+      row.onclick=()=>{ selected=p.id; save(); render(); };
+      list.appendChild(row);
+    });
+    board.appendChild(list);
+    results.appendChild(board);
+    const activity=document.createElement('div');
+    activity.className='mt-6 rounded-lg border border-gray-200 bg-white p-4';
+    const atitle=document.createElement('div');
+    atitle.className='text-sm font-medium mb-3';
+    atitle.textContent='最近活动';
+    activity.appendChild(atitle);
+    const items=[];
+    projects.forEach(p=>{
+      if(p.interviewUpdatedAt) items.push({ts:p.interviewUpdatedAt, text:`更新了访谈 · ${p.name}`});
+      if(p.surveyUpdatedAt) items.push({ts:p.surveyUpdatedAt, text:`更新了问卷 · ${p.name}`});
+      if(p.focusUpdatedAt) items.push({ts:p.focusUpdatedAt, text:`更新了焦点小组 · ${p.name}`});
+    });
+    items.sort((a,b)=>b.ts-a.ts);
+    const recent=items.slice(0,3);
+    if(recent.length===0){
+      const none=document.createElement('div');
+      none.className='text-xs text-gray-500';
+      none.textContent='暂无最近活动';
+      activity.appendChild(none);
+    }else{
+      recent.forEach(it=>{
+        const line=document.createElement('div');
+        line.className='flex items-center justify-between text-sm';
+        const t=document.createElement('div');
+        t.textContent=it.text;
+        const r=document.createElement('div');
+        r.className='text-xs text-gray-400';
+        r.textContent=relativeTime(it.ts);
+        line.appendChild(t);
+        line.appendChild(r);
+        activity.appendChild(line);
+      });
+    }
+    results.appendChild(activity);
+  }
+  function search(q){
+    const query=q.trim().toLowerCase();
+    results.innerHTML='';
+    if(!query){ renderDashboard(); return; }
+    const items=[];
+    projects.forEach(p=>{
+      (p.interviews||[]).forEach(it=>{
+        const texts=[it.name||'', it.background||'', it.pain||'', it.remark||''];
+        (it.notes||[]).forEach(n=>{ texts.push(n.question||'', n.answer||''); });
+        const hit=texts.some(t=>String(t).toLowerCase().includes(query));
+        if(hit) items.push({project:p, type:'interview', title:it.name||it.date||'访谈', id:it.id});
+      });
+      (p.surveys||[]).forEach(sv=>{
+        const texts=[sv.name||'', sv.insights||''];
+        const hit=texts.some(t=>String(t).toLowerCase().includes(query));
+        if(hit) items.push({project:p, type:'survey', title:sv.name||'问卷', id:sv.id});
+      });
+      (p.focusGroups||[]).forEach(fg=>{
+        const texts=[fg.topic||'', (fg.records&&fg.records.consensus)||'', (fg.records&&fg.records.collision)||'', (fg.records&&fg.records.quotes)||''];
+        const hit=texts.some(t=>String(t).toLowerCase().includes(query));
+        if(hit) items.push({project:p, type:'focus', title:fg.name||fg.topic||'焦点小组', id:fg.id});
+      });
+    });
+    if(items.length===0){
+      const empty=document.createElement('div');
+      empty.className='text-xs text-gray-500';
+      empty.textContent='未找到相关内容';
+      results.appendChild(empty);
+      return;
+    }
+    items.forEach(r=>{
+      const card=document.createElement('button');
+      card.className='w-full text-left rounded-lg border border-gray-200 bg-white px-3 py-2 hover:border-gray-300';
+      const typeLabel=r.type==='interview'?'访谈':(r.type==='survey'?'问卷':'焦点小组');
+      card.innerHTML=`<div class="text-sm font-medium">${r.project.name} > ${typeLabel} > ${r.title}</div>`;
+      card.onclick=()=>{
+        selected=r.project.id; _openTarget={type:r.type,id:r.id}; save();
+        openCategory({key:r.type,label:typeLabel,desc:''});
+      };
+      results.appendChild(card);
+    });
+  }
+  input.oninput=()=>search(input.value);
+  wrap.appendChild(searchBox);
+  wrap.appendChild(results);
+  area.appendChild(wrap);
+  renderDashboard();
+  return;
+ }
+ const proj=projects.find(x=>x.id===selected);
+ renderHeaderTitle(proj);
+ area.innerHTML='';
+ const info=document.createElement('div');
+ info.className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-6';
+ info.appendChild(createInfoCard('项目简介','description','点击添加项目简介...'));
+ info.appendChild(createInfoCard('初步结论','insights','点击添加初步结论...'));
+ area.appendChild(info);
+ const grid=document.createElement('div');
+ grid.className='grid grid-cols-1 sm:grid-cols-3 gap-4';
+ const folders=[
+  {key:'survey',label:'问卷',desc:'这里是问卷列表'},
+  {key:'interview',label:'访谈',desc:'这里是访谈列表'},
+  {key:'focus',label:'焦点小组',desc:'这里是焦点小组列表'}
+ ];
+ folders.forEach(f=>{
+  const card=document.createElement('button');
+  card.className='rounded-lg border border-gray-200 bg-white p-5 text-left hover:border-gray-300 hover:shadow-sm';
+  let lm='';
+  if(f.key==='survey') lm=proj.surveyLastModified||'';
+  else if(f.key==='interview') lm=proj.interviewLastModified||'';
+  else if(f.key==='focus') lm=proj.focusLastModified||'';
+  const lmText=lm && lm.trim()? ('最后更新：'+lm) : '最后更新：暂无记录';
+  card.innerHTML='<div class="text-base font-medium">'+f.label+'</div><div class="mt-1 text-xs text-gray-500">Folder</div><div class="mt-1 text-xs text-gray-400">'+lmText+'</div>';
+  card.onclick=()=>openCategory(f);
+  grid.appendChild(card);
+ });
+ area.appendChild(grid);
+}
+function openCategory(f){
+ const area=document.getElementById('contentArea');
+ area.innerHTML='';
+ const toolbar=document.createElement('div');
+ toolbar.className='mb-4 flex items-center justify-between';
+ const back=document.createElement('button');
+ back.className='rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-100';
+ back.textContent='返回';
+ back.onclick=()=>renderContent();
+ const title=document.createElement('div');
+ title.className='text-base font-medium';
+ title.textContent=f.label;
+ toolbar.appendChild(back);
+ toolbar.appendChild(title);
+ area.appendChild(toolbar);
+ const proj=projects.find(x=>x.id===selected);
+  if(f.key==='interview'){
+   renderInterviewCategory(area, proj);
+  }else if(f.key==='survey'){
+   renderSurveyCategory(area, proj);
+  }else if(f.key==='focus'){
+   renderFocusGroupCategory(area, proj);
+  }else{
+   const box=document.createElement('div');
+   box.className='rounded-lg border border-gray-200 bg-white p-6';
+   box.textContent=f.desc;
+   area.appendChild(box);
+ }
+}
+function renderFocusGroupCategory(root, proj){
+ const container=document.createElement('div');
+ container.className='grid grid-cols-1 lg:grid-cols-3 gap-4';
+ const listBox=document.createElement('div');
+ listBox.className='lg:col-span-1 rounded-lg border border-gray-200 bg-white p-4';
+ const listHead=document.createElement('div');
+ listHead.className='flex items-center justify-between mb-3';
+ const listTitle=document.createElement('div');
+ listTitle.className='text-sm font-medium';
+ listTitle.textContent='焦点小组';
+ const headActions=document.createElement('div');
+ headActions.className='flex items-center gap-2';
+ const outlineBtn=document.createElement('button');
+ outlineBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ outlineBtn.textContent='编辑默认提纲';
+ const addBtn=document.createElement('button');
+ addBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ addBtn.textContent='新增焦点小组';
+ listHead.appendChild(listTitle);
+ headActions.appendChild(outlineBtn);
+ headActions.appendChild(addBtn);
+ listHead.appendChild(headActions);
+ const list=document.createElement('div');
+ list.className='space-y-2';
+ listBox.appendChild(listHead);
+ listBox.appendChild(list);
+ const formBox=document.createElement('div');
+ formBox.className='lg:col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-4';
+ const formHead=document.createElement('div');
+ formHead.className='flex items-center justify-between mb-3';
+ const formTitle=document.createElement('div');
+ formTitle.className='text-sm font-medium';
+ formTitle.textContent='小组详情';
+ const exportGroup=document.createElement('div');
+ exportGroup.className='export-group flex items-center gap-2';
+ const exportMD=document.createElement('button');
+ exportMD.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ exportMD.textContent='📥 导出 MD';
+ const exportDOC=document.createElement('button');
+ exportDOC.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ exportDOC.textContent='📝 导出 Word';
+ const exportPDF=document.createElement('button');
+ exportPDF.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ exportPDF.textContent='🖨️ 打印/导出 PDF';
+ formHead.appendChild(formTitle);
+ exportGroup.appendChild(exportMD);
+ exportGroup.appendChild(exportDOC);
+ exportGroup.appendChild(exportPDF);
+ formHead.appendChild(exportGroup);
+ formBox.appendChild(formHead);
+ const form=document.createElement('div');
+ form.className='space-y-4';
+ formBox.appendChild(form);
+ const printArea=document.createElement('div');
+ printArea.id='printArea';
+ printArea.className='hidden';
+ formBox.appendChild(printArea);
+ container.appendChild(listBox);
+ container.appendChild(formBox);
+ root.appendChild(container);
+ let editingId=null;
+ function input(cls, placeholder){
+   const i=document.createElement('input');
+   i.className=cls || 'w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   if(placeholder) i.placeholder=placeholder;
+   return i;
+ }
+ function textarea(cls, placeholder){
+   const t=document.createElement('textarea');
+   t.className=cls || 'w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   if(placeholder) t.placeholder=placeholder;
+   return t;
+ }
+ function today(){
+   const d=new Date();
+   const yyyy=d.getFullYear();
+   const mm=String(d.getMonth()+1).padStart(2,'0');
+   const dd=String(d.getDate()).padStart(2,'0');
+   return `${yyyy}-${mm}-${dd}`;
+ }
+ function openOutlineModal(){
+   const overlay=document.createElement('div');
+   overlay.className='fixed inset-0 bg-black/20 flex items-center justify-center z-50';
+   const panel=document.createElement('div');
+   panel.className='w-full max-w-lg rounded-lg border border-gray-200 bg-white p-4';
+   const title=document.createElement('div');
+   title.className='text-sm font-medium mb-2';
+   title.textContent='编辑默认提纲（每行一个问题）';
+   const ta=document.createElement('textarea');
+   ta.className='w-full h-48 rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   ta.value=(proj.focusOutlineTemplate||[]).join('\n');
+   const actions=document.createElement('div');
+   actions.className='mt-3 flex items-center justify-end gap-2';
+   const cancel=document.createElement('button');
+   cancel.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   cancel.textContent='取消';
+   const saveBtn=document.createElement('button');
+   saveBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   saveBtn.textContent='保存';
+   actions.appendChild(cancel);
+   actions.appendChild(saveBtn);
+   panel.appendChild(title);
+   panel.appendChild(ta);
+   panel.appendChild(actions);
+   overlay.appendChild(panel);
+   document.body.appendChild(overlay);
+   cancel.onclick=()=>{ document.body.removeChild(overlay); };
+   saveBtn.onclick=()=>{
+     const lines=ta.value.split('\n').map(x=>x.trim()).filter(x=>x.length>0);
+     proj.focusOutlineTemplate=lines;
+     save();
+     document.body.removeChild(overlay);
+   };
+ }
+ function safeText(s){ return (s||'').replace(/</g,'&lt;'); }
+ function exportMarkdownFG(current){
+   const n=current.name && current.name.trim()? current.name.trim(): '未命名';
+   const d=current.date && current.date.trim()? current.date.trim(): today();
+   const locType=current.locationType||'';
+   const locDetail=current.locationDetail||'';
+   const duration=current.duration||'';
+   const host=current.host||'';
+   const parts=(current.participants||[]);
+   const outline=(current.outline||[]);
+   const rec=current.records||{};
+   let md=`# 焦点小组记录：${n}\n\n`;
+   md+=`日期：${d}\n`;
+   md+=`地点：${locType} ${locDetail}\n`;
+   md+=`时长：${duration}\n`;
+   md+=`主持人：${host}\n\n`;
+   md+=`参与者名单\n`;
+   if(parts.length){
+     md+=`| 姓名 | 身份 | 特征 |\n| --- | --- | --- |\n`;
+     parts.forEach(p=>{ md+=`| ${(p.name||'')} | ${(p.tag||'')} | ${(p.traits||'')} |\n`; });
+     md+=`\n`;
+   }else{
+     md+=`无\n\n`;
+   }
+   md+=`讨论提纲\n`;
+   if(outline.length){
+     outline.forEach(q=>{ md+=`- ${q}\n`; });
+     md+=`\n`;
+   }else{
+     md+=`无\n\n`;
+   }
+   md+=`## 观点碰撞\n`;
+   md+=`${(rec.collision&&rec.collision.trim())? rec.collision.trim() : '无'}\n\n`;
+   md+=`## 共识总结\n`;
+   md+=`${(rec.consensus&&rec.consensus.trim())? rec.consensus.trim() : '无'}\n\n`;
+   md+=`## 精彩金句\n`;
+   if(rec.quotes && rec.quotes.trim()){
+     const lines=rec.quotes.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+     lines.forEach(l=>{ md+=`> ${l}\n`; });
+     md+=`\n`;
+   }else{
+     md+=`无\n`;
+   }
+   const safeName=s=>s.replace(/[\\/:*?"<>|]/g,'_');
+   const fname=`焦点小组_${safeName(n)}_${safeName(d)}.md`;
+   const blob=new Blob([md],{type:'text/markdown;charset=utf-8'});
+   const url=URL.createObjectURL(blob);
+   const a=document.createElement('a');
+   a.href=url; a.download=fname;
+   document.body.appendChild(a); a.click(); a.remove();
+   URL.revokeObjectURL(url);
+ }
+ function exportWordFG(current){
+   const n=current.name && current.name.trim()? current.name.trim(): '未命名';
+   const d=current.date && current.date.trim()? current.date.trim(): today();
+   const safeName=s=>s.replace(/[\\/:*?"<>|]/g,'_');
+   const fname=`焦点小组_${safeName(n)}_${safeName(d)}.doc`;
+   const parts=(current.participants||[]);
+   const outline=(current.outline||[]);
+   const rec=current.records||{};
+   const tableRows=parts.map(p=>`<tr><td>${safeText(p.name)}</td><td>${safeText(p.tag)}</td><td>${safeText(p.traits)}</td></tr>`).join('');
+   const outlineList=outline.map(q=>`<li>${safeText(q)}</li>`).join('');
+   const quotesHTML=(rec.quotes||'').split('\n').map(l=>l.trim()).filter(l=>l.length>0).map(l=>`<blockquote>${safeText(l)}</blockquote>`).join('');
+   const html=`<!doctype html><html><head><meta charset="utf-8"><title>焦点小组</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;line-height:1.6}
+h1{font-size:20px;font-weight:700;margin:0 0 8px}
+h2{font-size:16px;font-weight:700;margin:16px 0 6px}
+p{margin:6px 0}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+td,th{border:1px solid #e5e7eb;padding:6px;font-size:12px}
+.block{margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa}
+blockquote{border-left:3px solid #e5e7eb;padding:6px 8px;margin:6px 0;background:#fbfbfb}
+</style></head><body>
+<h1>焦点小组记录：${safeText(n)}</h1>
+<p>日期：${safeText(d)}</p>
+<p>地点：${safeText(current.locationType||'')} ${safeText(current.locationDetail||'')}</p>
+<p>时长：${safeText(current.duration||'')}</p>
+<p>主持人：${safeText(current.host||'')}</p>
+<h2>参与者名单</h2>
+${parts.length? `<table><thead><tr><th>姓名</th><th>身份</th><th>特征</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<p>无</p>'}
+<h2>讨论提纲</h2>
+${outline.length? `<ul>${outlineList}</ul>` : '<p>无</p>'}
+<div class="block"><h2>观点碰撞</h2><p>${safeText(rec.collision||'无')}</p></div>
+<div class="block"><h2>共识总结</h2><p>${safeText(rec.consensus||'无')}</p></div>
+<div class="block"><h2>精彩金句</h2>${quotesHTML || '<p>无</p>'}</div>
+</body></html>`;
+   const blob=new Blob([html],{type:'application/msword;charset=utf-8'});
+   const url=URL.createObjectURL(blob);
+   const a=document.createElement('a');
+   a.href=url; a.download=fname;
+   document.body.appendChild(a); a.click(); a.remove();
+   URL.revokeObjectURL(url);
+ }
+ function buildPrintHTMLFG(current){
+   const n=current.name && current.name.trim()? current.name.trim(): '未命名';
+   const d=current.date && current.date.trim()? current.date.trim(): today();
+   const parts=(current.participants||[]);
+   const outline=(current.outline||[]);
+   const rec=current.records||{};
+   const tableRows=parts.map(p=>`<tr><td>${safeText(p.name)}</td><td>${safeText(p.tag)}</td><td>${safeText(p.traits)}</td></tr>`).join('');
+   const outlineList=outline.map(q=>`<li>${safeText(q)}</li>`).join('');
+   const quotesHTML=(rec.quotes||'').split('\n').map(l=>l.trim()).filter(l=>l.length>0).map(l=>`<blockquote>${safeText(l)}</blockquote>`).join('');
+   const pa=document.getElementById('printArea');
+   if(!pa) return;
+   pa.innerHTML=`
+   <div style="padding:24px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei','Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans',sans-serif">
+     <h1 style="font-size:20px;font-weight:700;margin:0 0 8px">焦点小组记录：${safeText(n)}</h1>
+     <p>日期：${safeText(d)}</p>
+     <p>地点：${safeText(current.locationType||'')} ${safeText(current.locationDetail||'')}</p>
+     <p>时长：${safeText(current.duration||'')}</p>
+     <p>主持人：${safeText(current.host||'')}</p>
+     <h2 style="font-size:16px;font-weight:700;margin:16px 0 6px">参与者名单</h2>
+     ${parts.length? `<table style="width:100%;border-collapse:collapse;margin:8px 0"><thead><tr><th style="border:1px solid #e5e7eb;padding:6px;font-size:12px">姓名</th><th style="border:1px solid #e5e7eb;padding:6px;font-size:12px">身份</th><th style="border:1px solid #e5e7eb;padding:6px;font-size:12px">特征</th></tr></thead><tbody>${tableRows}</tbody></table>` : '<p>无</p>'}
+     <h2 style="font-size:16px;font-weight:700;margin:16px 0 6px">讨论提纲</h2>
+     ${outline.length? `<ul>${outlineList}</ul>` : '<p>无</p>'}
+     <div style="margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa">
+       <h2 style="font-size:16px;font-weight:700;margin:0 0 6px">观点碰撞</h2>
+       <p>${safeText(rec.collision||'无')}</p>
+     </div>
+     <div style="margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa">
+       <h2 style="font-size:16px;font-weight:700;margin:0 0 6px">共识总结</h2>
+       <p>${safeText(rec.consensus||'无')}</p>
+     </div>
+     <div style="margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa">
+       <h2 style="font-size:16px;font-weight:700;margin:0 0 6px">精彩金句</h2>
+       ${quotesHTML || '<p>无</p>'}
+     </div>
+   </div>`;
+ }
+ function renderList(){
+   list.innerHTML='';
+   (proj.focusGroups||[]).forEach(item=>{
+     const row=document.createElement('div');
+     row.className='rounded border border-gray-200 px-3 py-2 hover:bg-gray-50';
+     const top=document.createElement('div');
+     top.className='flex items-center justify-between';
+     const left=document.createElement('div');
+     left.className='flex items-center gap-2';
+     const nameBtn=document.createElement('button');
+     nameBtn.className='text-sm font-medium';
+     nameBtn.textContent=item.name||'未命名小组';
+     nameBtn.onclick=()=>{ loadForm(item.id); };
+     const metaSmall=document.createElement('div');
+     metaSmall.className='text-xs text-gray-500';
+     metaSmall.textContent=`${item.date||'-'} · 参与人数：${(item.participants||[]).length||item.participantCount||0} · 主持人：${item.host||'-'}`;
+     left.appendChild(nameBtn);
+     left.appendChild(metaSmall);
+     top.appendChild(left);
+     row.appendChild(top);
+     list.appendChild(row);
+   });
+   if(!proj.focusGroups||proj.focusGroups.length===0){
+     const empty=document.createElement('div');
+     empty.className='text-xs text-gray-500';
+     empty.textContent='暂无焦点小组，点击“新增焦点小组”开始添加。';
+     list.appendChild(empty);
+   }
+ }
+ function loadForm(id){
+   form.innerHTML='';
+   let data;
+   if(id){
+     data=proj.focusGroups.find(x=>x.id===id);
+     editingId=id;
+   }else{
+     const templ=(proj.focusOutlineTemplate||[]);
+     data={id:String(Date.now()),name:'',date:today(),host:'',topic:'',locationType:'线上',locationDetail:'',duration:'',participants:[],outline:(templ.length? templ.map(q=>q):[]),records:{collision:'',consensus:'',quotes:''}};
+     editingId=null;
+   }
+   const baseWrap=document.createElement('div');
+   baseWrap.className='grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md bg-gray-50 p-3';
+   const nameField=document.createElement('div');
+   const nameLabel=document.createElement('div');
+   nameLabel.className='text-xs text-gray-600';
+   nameLabel.textContent='小组名称';
+   const nameInput=input();
+   nameInput.value=data.name||'';
+   nameInput.oninput=()=>{ data.name=nameInput.value; };
+   nameField.appendChild(nameLabel);
+   nameField.appendChild(nameInput);
+   const dateField=document.createElement('div');
+   const dateLabel=document.createElement('div');
+   dateLabel.className='text-xs text-gray-600';
+   dateLabel.textContent='日期';
+   const dateInput=input();
+   dateInput.type='date';
+   dateInput.value=data.date||today();
+   dateInput.oninput=()=>{ data.date=dateInput.value; };
+   dateField.appendChild(dateLabel);
+   dateField.appendChild(dateInput);
+   baseWrap.appendChild(nameField);
+   baseWrap.appendChild(dateField);
+   const infoWrap=document.createElement('div');
+   infoWrap.className='grid grid-cols-1 md:grid-cols-3 gap-3 rounded-md bg-gray-50 p-3';
+   const topicField=document.createElement('div');
+   const topicLabel=document.createElement('div');
+   topicLabel.className='text-xs text-gray-600';
+   topicLabel.textContent='小组主题';
+   const topicInput=input();
+   topicInput.value=data.topic||'';
+   topicInput.oninput=()=>{ data.topic=topicInput.value; };
+   topicField.appendChild(topicLabel);
+   topicField.appendChild(topicInput);
+   const locTypeField=document.createElement('div');
+   const locTypeLabel=document.createElement('div');
+   locTypeLabel.className='text-xs text-gray-600';
+   locTypeLabel.textContent='地点类型';
+   const locTypeSelect=document.createElement('select');
+   locTypeSelect.className='w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   ['线上','线下'].forEach(s=>{ const opt=document.createElement('option'); opt.value=s; opt.textContent=s; locTypeSelect.appendChild(opt); });
+   locTypeSelect.value=data.locationType||'线上';
+   locTypeSelect.oninput=()=>{ data.locationType=locTypeSelect.value; };
+   locTypeField.appendChild(locTypeLabel);
+   locTypeField.appendChild(locTypeSelect);
+   const durationField=document.createElement('div');
+   const durationLabel=document.createElement('div');
+   durationLabel.className='text-xs text-gray-600';
+   durationLabel.textContent='时长';
+   const durationInput=input();
+   durationInput.placeholder='例如：90 分钟';
+   durationInput.value=data.duration||'';
+   durationInput.oninput=()=>{ data.duration=durationInput.value; };
+   durationField.appendChild(durationLabel);
+   durationField.appendChild(durationInput);
+   infoWrap.appendChild(topicField);
+   infoWrap.appendChild(locTypeField);
+   infoWrap.appendChild(durationField);
+   const locDetailField=document.createElement('div');
+   locDetailField.className='rounded-md bg-gray-50 p-3';
+   const locDetailLabel=document.createElement('div');
+   locDetailLabel.className='text-xs text-gray-600';
+   locDetailLabel.textContent='地点（线上会议链接或线下地址）';
+   const locDetailInput=input();
+   locDetailInput.value=data.locationDetail||'';
+   locDetailInput.oninput=()=>{ data.locationDetail=locDetailInput.value; };
+   locDetailField.appendChild(locDetailLabel);
+   locDetailField.appendChild(locDetailInput);
+   const hostField=document.createElement('div');
+   hostField.className='rounded-md bg-gray-50 p-3';
+   const hostLabel=document.createElement('div');
+   hostLabel.className='text-xs text-gray-600';
+   hostLabel.textContent='主持人';
+   const hostInput=input();
+   hostInput.value=data.host||'';
+   hostInput.oninput=()=>{ data.host=hostInput.value; };
+   hostField.appendChild(hostLabel);
+   hostField.appendChild(hostInput);
+   const participantsWrap=document.createElement('div');
+   participantsWrap.className='rounded-lg border border-gray-200 bg-white p-3';
+   const pHead=document.createElement('div');
+   pHead.className='flex items-center justify-between mb-2';
+   const pTitle=document.createElement('div');
+   pTitle.className='text-xs font-medium';
+   pTitle.textContent='参与者名单（紧凑表格）';
+   const addP=document.createElement('button');
+   addP.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   addP.textContent='添加参与者';
+   pHead.appendChild(pTitle);
+   pHead.appendChild(addP);
+   const pTable=document.createElement('div');
+   pTable.className='grid grid-cols-12 gap-2';
+   function renderParticipants(){
+     pTable.innerHTML='';
+     const header=['姓名','身份标签','核心特征','操作'];
+     const headerRow=document.createElement('div');
+     headerRow.className='contents';
+     [0,1,2,3].forEach((i)=>{
+       const cell=document.createElement('div');
+       cell.className='col-span-3 text-xs text-gray-600';
+       cell.textContent=header[i];
+       headerRow.appendChild(cell);
+     });
+     pTable.appendChild(headerRow);
+     if(!data.participants||data.participants.length===0) data.participants=[];
+     data.participants.forEach((p,idx)=>{
+       const row=document.createElement('div');
+       row.className='contents';
+       const nameCell=document.createElement('div');
+       nameCell.className='col-span-3';
+       const nameInput=input();
+       nameInput.value=p.name||'';
+       nameInput.oninput=()=>{ p.name=nameInput.value; };
+       nameCell.appendChild(nameInput);
+       const tagCell=document.createElement('div');
+       tagCell.className='col-span-3';
+       const tagSelect=document.createElement('select');
+       tagSelect.className='w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+       ['资深用户','潜在用户','新用户','流失用户'].forEach(s=>{ const opt=document.createElement('option'); opt.value=s; opt.textContent=s; tagSelect.appendChild(opt); });
+       tagSelect.value=p.tag||'资深用户';
+       tagSelect.oninput=()=>{ p.tag=tagSelect.value; };
+       tagCell.appendChild(tagSelect);
+       const traitCell=document.createElement('div');
+       traitCell.className='col-span-3';
+       const traitInput=input();
+       traitInput.placeholder='核心特征描述';
+       traitInput.value=p.traits||'';
+       traitInput.oninput=()=>{ p.traits=traitInput.value; };
+       traitCell.appendChild(traitInput);
+       const opCell=document.createElement('div');
+       opCell.className='col-span-3';
+       const del=document.createElement('button');
+       del.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+       del.textContent='删除';
+       del.onclick=()=>{ data.participants.splice(idx,1); renderParticipants(); };
+       opCell.appendChild(del);
+       row.appendChild(nameCell);
+       row.appendChild(tagCell);
+       row.appendChild(traitCell);
+       row.appendChild(opCell);
+       pTable.appendChild(row);
+     });
+   }
+   addP.onclick=()=>{ data.participants.push({name:'',tag:'资深用户',traits:''}); renderParticipants(); };
+   renderParticipants();
+   participantsWrap.appendChild(pHead);
+   participantsWrap.appendChild(pTable);
+   const outlineWrap=document.createElement('div');
+   outlineWrap.className='rounded-lg border border-gray-200 bg-gray-50 p-3';
+   const outlineHead=document.createElement('div');
+   outlineHead.className='flex items-center justify-between mb-2';
+   const outlineTitle=document.createElement('div');
+   outlineTitle.className='text-xs font-medium';
+   outlineTitle.textContent='讨论大纲';
+   const addOutline=document.createElement('button');
+   addOutline.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   addOutline.textContent='添加问题';
+   outlineHead.appendChild(outlineTitle);
+   outlineHead.appendChild(addOutline);
+   const outlineList=document.createElement('div');
+   outlineList.className='space-y-2';
+   function renderOutline(){
+     outlineList.innerHTML='';
+     if(!data.outline||data.outline.length===0) data.outline=[];
+     data.outline.forEach((q,idx)=>{
+       const row=document.createElement('div');
+       row.className='flex items-center gap-2';
+       const qi=input('flex-1 rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none');
+       qi.value=q||'';
+       qi.oninput=()=>{ data.outline[idx]=qi.value; };
+       const del=document.createElement('button');
+       del.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+       del.textContent='删除';
+       del.onclick=()=>{ data.outline.splice(idx,1); renderOutline(); };
+       row.appendChild(qi);
+       row.appendChild(del);
+       outlineList.appendChild(row);
+     });
+   }
+   addOutline.onclick=()=>{ data.outline.push(''); renderOutline(); };
+   renderOutline();
+   outlineWrap.appendChild(outlineHead);
+   outlineWrap.appendChild(outlineList);
+   const recordsWrap=document.createElement('div');
+   recordsWrap.className='rounded-lg border border-gray-200 bg-white p-3';
+   const collisionLabel=document.createElement('div');
+   collisionLabel.className='text-xs font-medium';
+   collisionLabel.textContent='观点碰撞区';
+   const collisionText=textarea();
+   collisionText.value=(data.records&&data.records.collision)||'';
+   collisionText.oninput=()=>{ data.records=data.records||{}; data.records.collision=collisionText.value; };
+   const consensusLabel=document.createElement('div');
+   consensusLabel.className='text-xs font-medium mt-3';
+   consensusLabel.textContent='共识总结';
+   const consensusText=textarea();
+   consensusText.value=(data.records&&data.records.consensus)||'';
+   consensusText.oninput=()=>{ data.records=data.records||{}; data.records.consensus=consensusText.value; };
+   const quotesLabel=document.createElement('div');
+   quotesLabel.className='text-xs font-medium mt-3';
+   quotesLabel.textContent='精彩金句（提示：使用 > 表示金句）';
+   const quotesText=textarea();
+   quotesText.placeholder='例如：> 这是某位参与者的原话';
+   quotesText.value=(data.records&&data.records.quotes)||'';
+   quotesText.oninput=()=>{ data.records=data.records||{}; data.records.quotes=quotesText.value; };
+   recordsWrap.appendChild(collisionLabel);
+   recordsWrap.appendChild(collisionText);
+   recordsWrap.appendChild(consensusLabel);
+   recordsWrap.appendChild(consensusText);
+   recordsWrap.appendChild(quotesLabel);
+   recordsWrap.appendChild(quotesText);
+   exportMD.onclick=()=>{ exportMarkdownFG(data); };
+   exportDOC.onclick=()=>{ exportWordFG(data); };
+   exportPDF.onclick=()=>{ buildPrintHTMLFG(data); alert('请在弹出的打印窗口中选择“另存为 PDF”'); window.print(); };
+   const actions=document.createElement('div');
+   actions.className='flex items-center gap-2';
+   const saveBtn=document.createElement('button');
+   saveBtn.className='text-sm px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   saveBtn.textContent='保存';
+   const delBtn=document.createElement('button');
+   delBtn.className='text-sm px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   delBtn.textContent='删除';
+   actions.appendChild(saveBtn);
+   if(editingId) actions.appendChild(delBtn);
+   saveBtn.onclick=()=>{
+     proj.focusLastModified=today();
+     proj.focusUpdatedAt=nowMs();
+     proj.updatedAt=nowMs();
+     if(editingId){
+       const idx=proj.focusGroups.findIndex(x=>x.id===editingId);
+       if(idx>=0) proj.focusGroups[idx]=data;
+     }else{
+       proj.focusGroups.push(data);
+       editingId=data.id;
+     }
+     save();
+     renderList();
+   };
+   delBtn.onclick=()=>{
+     if(!editingId) return;
+     if(confirm('删除该焦点小组记录？')){
+       proj.focusGroups=proj.focusGroups.filter(x=>x.id!==editingId);
+       save();
+       editingId=null;
+       form.innerHTML='';
+       renderList();
+     }
+   };
+   form.appendChild(baseWrap);
+   form.appendChild(infoWrap);
+   form.appendChild(locDetailField);
+   form.appendChild(hostField);
+   form.appendChild(participantsWrap);
+   form.appendChild(outlineWrap);
+   form.appendChild(recordsWrap);
+   form.appendChild(actions);
+ }
+ addBtn.onclick=()=>{ loadForm(null); };
+ outlineBtn.onclick=()=>{ openOutlineModal(); };
+ renderList();
+}
+function renderSurveyCategory(root, proj){
+ const container=document.createElement('div');
+ container.className='grid grid-cols-1 lg:grid-cols-3 gap-4';
+ const listBox=document.createElement('div');
+ listBox.className='lg:col-span-1 rounded-lg border border-gray-200 bg-white p-4';
+ const listHead=document.createElement('div');
+ listHead.className='flex items-center justify-between mb-3';
+ const listTitle=document.createElement('div');
+ listTitle.className='text-sm font-medium';
+ listTitle.textContent='问卷列表';
+ const addBtn=document.createElement('button');
+ addBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ addBtn.textContent='新增问卷';
+ listHead.appendChild(listTitle);
+ listHead.appendChild(addBtn);
+ const list=document.createElement('div');
+ list.className='space-y-2';
+ listBox.appendChild(listHead);
+ listBox.appendChild(list);
+ const formBox=document.createElement('div');
+ formBox.className='lg:col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-4';
+ const formHead=document.createElement('div');
+ formHead.className='flex items-center justify-between mb-3';
+ const formTitle=document.createElement('div');
+ formTitle.className='text-sm font-medium';
+ formTitle.textContent='问卷详情';
+ formHead.appendChild(formTitle);
+ formBox.appendChild(formHead);
+ const form=document.createElement('div');
+ form.className='space-y-4';
+ formBox.appendChild(form);
+ container.appendChild(listBox);
+ container.appendChild(formBox);
+ root.appendChild(container);
+ let editingId=null;
+ function now(){
+   const d=new Date();
+   const yyyy=d.getFullYear();
+   const mm=String(d.getMonth()+1).padStart(2,'0');
+   const dd=String(d.getDate()).padStart(2,'0');
+   const hh=String(d.getHours()).padStart(2,'0');
+   const mi=String(d.getMinutes()).padStart(2,'0');
+   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+ }
+ function today(){
+   const d=new Date();
+   const yyyy=d.getFullYear();
+   const mm=String(d.getMonth()+1).padStart(2,'0');
+   const dd=String(d.getDate()).padStart(2,'0');
+   return `${yyyy}-${mm}-${dd}`;
+ }
+ function badge(status){
+   const s=document.createElement('span');
+   s.className='text-xs px-2 py-0.5 rounded border';
+   s.textContent=status||'设计中';
+   if(status==='投放中'){ s.className+=' border-green-300 text-green-700 bg-green-50'; }
+   else if(status==='已结束'){ s.className+=' border-gray-300 text-gray-700 bg-gray-50'; }
+   else { s.className+=' border-yellow-300 text-yellow-700 bg-yellow-50'; }
+   return s;
+ }
+ function input(cls, placeholder){
+   const i=document.createElement('input');
+   i.className=cls || 'w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   if(placeholder) i.placeholder=placeholder;
+   return i;
+ }
+ function textarea(cls, placeholder){
+   const t=document.createElement('textarea');
+   t.className=cls || 'w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   if(placeholder) t.placeholder=placeholder;
+   return t;
+ }
+ function renderList(){
+   list.innerHTML='';
+   (proj.surveys||[]).forEach(item=>{
+     const row=document.createElement('div');
+     row.className='rounded border border-gray-200 px-3 py-2 hover:bg-gray-50';
+     const top=document.createElement('div');
+     top.className='flex items-center justify-between';
+     const left=document.createElement('div');
+     left.className='flex items-center gap-2';
+     const nameBtn=document.createElement('button');
+     nameBtn.className='text-sm font-medium';
+     nameBtn.textContent=item.name||'未命名问卷';
+     nameBtn.onclick=()=>{ loadForm(item.id); };
+     const st=badge(item.status||'设计中');
+     left.appendChild(nameBtn);
+     left.appendChild(st);
+     const quick=document.createElement('button');
+     quick.className=(item.adminLink&&item.adminLink.trim()? 'text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200' : 'text-xs px-2 py-1 rounded border border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed');
+     quick.textContent='↗️ 后台';
+     quick.title='一键跳转后台';
+     quick.onclick=(e)=>{
+       e.stopPropagation();
+       if(item.adminLink&&item.adminLink.trim()) window.open(item.adminLink,'_blank');
+     };
+     top.appendChild(left);
+     top.appendChild(quick);
+     const meta=document.createElement('div');
+     meta.className='mt-1 text-xs text-gray-500';
+     const planned=item.planned||0;
+     const actual=item.actual||0;
+     meta.textContent=`进度：${actual}/${planned} · 最后更新时间：${item.updatedAt||'-'}`;
+     row.appendChild(top);
+     row.appendChild(meta);
+     list.appendChild(row);
+   });
+   if(!proj.surveys||proj.surveys.length===0){
+     const empty=document.createElement('div');
+     empty.className='text-xs text-gray-500';
+     empty.textContent='暂无问卷，点击“新增问卷”开始添加。';
+     list.appendChild(empty);
+   }
+ }
+ function loadForm(id){
+   form.innerHTML='';
+   let data;
+   if(id){
+     data=proj.surveys.find(x=>x.id===id);
+     editingId=id;
+   }else{
+     data={id:String(Date.now()),name:'',status:'设计中',planned:0,actual:0,updatedAt:now(),visitLink:'',adminLink:'',targetDesc:'',adminNote:'',insights:''};
+     editingId=null;
+   }
+  if(!data.questions) data.questions=[{title:'',type:'单选',options:[]}];
+   const entryWrap=document.createElement('div');
+   entryWrap.className='rounded-md bg-gray-50 p-3';
+   const entryHead=document.createElement('div');
+   entryHead.className='text-xs text-gray-600 mb-2';
+   entryHead.textContent='入口区';
+   const entryBtns=document.createElement('div');
+   entryBtns.className='flex items-center gap-2';
+   const openVisit=document.createElement('button');
+   openVisit.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   openVisit.textContent='🔗 打开访问链接';
+   openVisit.onclick=()=>{ if(data.visitLink&&data.visitLink.trim()) window.open(data.visitLink,'_blank'); };
+   const openAdmin=document.createElement('button');
+   const hasAdmin=data.adminLink&&data.adminLink.trim();
+   openAdmin.className=hasAdmin? 'text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200' : 'text-xs px-3 py-1.5 rounded border border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed';
+   openAdmin.textContent='🛠️ 管理后台';
+   if(hasAdmin) openAdmin.onclick=()=>{ window.open(data.adminLink,'_blank'); };
+   entryBtns.appendChild(openVisit);
+   entryBtns.appendChild(openAdmin);
+   entryWrap.appendChild(entryHead);
+   entryWrap.appendChild(entryBtns);
+   const baseWrap=document.createElement('div');
+   baseWrap.className='grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md bg-gray-50 p-3';
+   const nameField=document.createElement('div');
+   const nameLabel=document.createElement('div');
+   nameLabel.className='text-xs text-gray-600';
+   nameLabel.textContent='问卷名称';
+   const nameInput=input();
+   nameInput.value=data.name||'';
+   nameInput.oninput=()=>{ data.name=nameInput.value; };
+   nameField.appendChild(nameLabel);
+   nameField.appendChild(nameInput);
+   const statusField=document.createElement('div');
+   const statusLabel=document.createElement('div');
+   statusLabel.className='text-xs text-gray-600';
+   statusLabel.textContent='状态';
+   const statusSelect=document.createElement('select');
+   statusSelect.className='w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   ['设计中','投放中','已结束'].forEach(s=>{
+     const opt=document.createElement('option');
+     opt.value=s; opt.textContent=s;
+     statusSelect.appendChild(opt);
+   });
+   statusSelect.value=data.status||'设计中';
+   statusSelect.oninput=()=>{ data.status=statusSelect.value; };
+   statusField.appendChild(statusLabel);
+   statusField.appendChild(statusSelect);
+   const linksWrap=document.createElement('div');
+   linksWrap.className='grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md bg-gray-50 p-3';
+   const visitLabel=document.createElement('div');
+   visitLabel.className='text-xs text-gray-600';
+   visitLabel.textContent='访问链接';
+   const visitInput=input();
+   visitInput.value=data.visitLink||'';
+   visitInput.oninput=()=>{ data.visitLink=visitInput.value; };
+   const adminLabel=document.createElement('div');
+   adminLabel.className='text-xs text-gray-600';
+   adminLabel.textContent='管理后台链接';
+   const adminInput=input();
+   adminInput.value=data.adminLink||'';
+   adminInput.oninput=()=>{ data.adminLink=adminInput.value; };
+   const visitField=document.createElement('div');
+   visitField.appendChild(visitLabel);
+   visitField.appendChild(visitInput);
+   const adminField=document.createElement('div');
+   adminField.appendChild(adminLabel);
+   adminField.appendChild(adminInput);
+   linksWrap.appendChild(visitField);
+   linksWrap.appendChild(adminField);
+   const progressWrap=document.createElement('div');
+   progressWrap.className='grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md bg-gray-50 p-3';
+   const plannedField=document.createElement('div');
+   const plannedLabel=document.createElement('div');
+   plannedLabel.className='text-xs text-gray-600';
+   plannedLabel.textContent='计划回收量';
+   const plannedInput=input();
+   plannedInput.type='number';
+   plannedInput.value=String(data.planned||0);
+   plannedInput.oninput=()=>{ data.planned=parseInt(plannedInput.value||'0',10)||0; };
+   plannedField.appendChild(plannedLabel);
+   plannedField.appendChild(plannedInput);
+   const actualField=document.createElement('div');
+   const actualLabel=document.createElement('div');
+   actualLabel.className='text-xs text-gray-600';
+   actualLabel.textContent='实际回收量';
+   const actualInput=input();
+   actualInput.type='number';
+   actualInput.value=String(data.actual||0);
+   actualInput.oninput=()=>{ data.actual=parseInt(actualInput.value||'0',10)||0; };
+   actualField.appendChild(actualLabel);
+   actualField.appendChild(actualInput);
+   progressWrap.appendChild(plannedField);
+   progressWrap.appendChild(actualField);
+   const infoWrap=document.createElement('div');
+   infoWrap.className='rounded-md bg-gray-50 p-3';
+   const targetLabel=document.createElement('div');
+   targetLabel.className='text-xs text-gray-600';
+   targetLabel.textContent='目标人群描述';
+   const targetText=textarea();
+   targetText.value=data.targetDesc||'';
+   targetText.oninput=()=>{ data.targetDesc=targetText.value; };
+   const accountLabel=document.createElement('div');
+   accountLabel.className='text-xs text-gray-600 mt-3';
+   accountLabel.textContent='后台账号备注';
+   const accountText=textarea();
+   accountText.value=data.adminNote||'';
+   accountText.oninput=()=>{ data.adminNote=accountText.value; };
+   infoWrap.appendChild(targetLabel);
+   infoWrap.appendChild(targetText);
+   infoWrap.appendChild(accountLabel);
+   infoWrap.appendChild(accountText);
+   const questionsWrap=document.createElement('div');
+   questionsWrap.className='rounded-lg border border-gray-200 bg-[#FAFAFA] p-3';
+   const qHead=document.createElement('div');
+   qHead.className='flex items-center justify-between mb-2';
+   const qTitle=document.createElement('div');
+   qTitle.className='text-xs font-medium';
+   qTitle.textContent='题目与选项设计';
+   const addQuestion=document.createElement('button');
+   addQuestion.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   addQuestion.textContent='添加题目';
+   qHead.appendChild(qTitle);
+   qHead.appendChild(addQuestion);
+   const questionsList=document.createElement('div');
+   questionsList.className='space-y-3';
+   questionsWrap.appendChild(qHead);
+   questionsWrap.appendChild(questionsList);
+   function renderQuestions(){
+     questionsList.innerHTML='';
+     if(!data.questions||data.questions.length===0) data.questions=[{title:'',type:'单选',options:[]}];
+     data.questions.forEach((q,idx)=>{
+       const card=document.createElement('div');
+       card.className='relative rounded-md bg-white p-3 border border-gray-200';
+       const del=document.createElement('button');
+       del.className='absolute right-2 top-2 text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+       del.textContent='🗑️';
+       del.onclick=()=>{
+         data.questions.splice(idx,1);
+         renderQuestions();
+       };
+       const qTextLabel=document.createElement('div');
+       qTextLabel.className='text-xs text-gray-600';
+       qTextLabel.textContent='题目文字';
+       const qTextInput=document.createElement('input');
+       qTextInput.className='w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+       qTextInput.value=q.title||'';
+       qTextInput.oninput=()=>{ q.title=qTextInput.value; };
+       const typeLabel=document.createElement('div');
+       typeLabel.className='text-xs text-gray-600 mt-3';
+       typeLabel.textContent='题型';
+       const typeSelect=document.createElement('select');
+       typeSelect.className='w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+       ['单选','多选','填空'].forEach(t=>{
+         const opt=document.createElement('option');
+         opt.value=t; opt.textContent=t;
+         typeSelect.appendChild(opt);
+       });
+       typeSelect.value=q.type||'单选';
+       typeSelect.oninput=()=>{ q.type=typeSelect.value; renderQuestions(); };
+       const optLabel=document.createElement('div');
+       optLabel.className='text-xs text-gray-600 mt-3';
+       optLabel.textContent='选项内容（每行一个选项）';
+       const optText=document.createElement('textarea');
+       optText.className='w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+       optText.placeholder='每行输入一个选项';
+       optText.value=(q.options||[]).join('\\n');
+       optText.oninput=()=>{ q.options=optText.value.split('\\n').map(x=>x.trim()).filter(x=>x.length>0); };
+       const optBlock=document.createElement('div');
+       optBlock.appendChild(optLabel);
+       optBlock.appendChild(optText);
+       if(typeSelect.value==='填空') optBlock.classList.add('hidden');
+       card.appendChild(del);
+       card.appendChild(qTextLabel);
+       card.appendChild(qTextInput);
+       card.appendChild(typeLabel);
+       card.appendChild(typeSelect);
+       card.appendChild(optBlock);
+       questionsList.appendChild(card);
+     });
+   }
+   addQuestion.onclick=()=>{
+     data.questions.push({title:'',type:'单选',options:[]});
+     renderQuestions();
+   };
+   renderQuestions();
+   const insightWrap=document.createElement('div');
+   insightWrap.className='rounded-lg border border-gray-200 bg-gray-100 p-3';
+   const insightLabel=document.createElement('div');
+   insightLabel.className='text-xs font-medium mb-2';
+   insightLabel.textContent='核心洞察（手动搬运分析结果）';
+   const insightText=textarea();
+   insightText.value=data.insights||'';
+   insightText.oninput=()=>{ data.insights=insightText.value; };
+   insightWrap.appendChild(insightLabel);
+   insightWrap.appendChild(insightText);
+   const meta=document.createElement('div');
+   meta.className='text-xs text-gray-500';
+   meta.textContent=`最后更新时间：${data.updatedAt||'-'}`;
+   const actions=document.createElement('div');
+   actions.className='flex items-center gap-2';
+   const saveBtn=document.createElement('button');
+   saveBtn.className='text-sm px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   saveBtn.textContent='保存';
+   const delBtn=document.createElement('button');
+   delBtn.className='text-sm px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   delBtn.textContent='删除';
+   actions.appendChild(saveBtn);
+   if(editingId) actions.appendChild(delBtn);
+   saveBtn.onclick=()=>{
+     data.updatedAt=now();
+     proj.surveyLastModified=today();
+    proj.surveyUpdatedAt=nowMs();
+    proj.updatedAt=nowMs();
+     if(editingId){
+       const idx=proj.surveys.findIndex(x=>x.id===editingId);
+       if(idx>=0) proj.surveys[idx]=data;
+     }else{
+       proj.surveys.push(data);
+       editingId=data.id;
+     }
+     save();
+     meta.textContent=`最后更新时间：${data.updatedAt||'-'}`;
+     renderList();
+   };
+   delBtn.onclick=()=>{
+     if(!editingId) return;
+     if(confirm('删除该问卷记录？')){
+       proj.surveys=proj.surveys.filter(x=>x.id!==editingId);
+       save();
+       editingId=null;
+       form.innerHTML='';
+       renderList();
+     }
+   };
+   form.appendChild(entryWrap);
+   form.appendChild(baseWrap);
+   form.appendChild(linksWrap);
+   form.appendChild(progressWrap);
+   form.appendChild(infoWrap);
+   form.appendChild(questionsWrap);
+   form.appendChild(insightWrap);
+   form.appendChild(meta);
+   form.appendChild(actions);
+ }
+ addBtn.onclick=()=>{ loadForm(null); };
+  renderList();
+  if(_openTarget && _openTarget.type==='survey'){ loadForm(_openTarget.id); _openTarget=null; }
+}
+ function renderInterviewCategory(root, proj){
+ const container=document.createElement('div');
+ container.className='grid grid-cols-1 lg:grid-cols-3 gap-4';
+ const listBox=document.createElement('div');
+ listBox.className='lg:col-span-1 rounded-lg border border-gray-200 bg-white p-4';
+ const listHead=document.createElement('div');
+ listHead.className='flex items-center justify-between mb-3';
+ const listTitle=document.createElement('div');
+ listTitle.className='text-sm font-medium';
+ listTitle.textContent='访谈记录';
+ const headActions=document.createElement('div');
+ headActions.className='flex items-center gap-2';
+ const outlineBtn=document.createElement('button');
+ outlineBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ outlineBtn.textContent='编辑默认提纲';
+ const addBtn=document.createElement('button');
+ addBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ addBtn.textContent='新增访谈';
+ listHead.appendChild(listTitle);
+ headActions.appendChild(outlineBtn);
+ headActions.appendChild(addBtn);
+ listHead.appendChild(headActions);
+ const list=document.createElement('div');
+ list.className='space-y-2';
+ listBox.appendChild(listHead);
+ listBox.appendChild(list);
+ const formBox=document.createElement('div');
+ formBox.className='lg:col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-4';
+ const formHead=document.createElement('div');
+ formHead.className='flex items-center justify-between mb-3 no-print';
+ const formTitle=document.createElement('div');
+ formTitle.className='text-sm font-medium';
+ formTitle.textContent='访谈详情';
+ const exportGroup=document.createElement('div');
+ exportGroup.className='export-group flex items-center gap-2';
+ const exportMD=document.createElement('button');
+ exportMD.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ exportMD.textContent='📥 导出 MD';
+ const exportDOC=document.createElement('button');
+ exportDOC.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ exportDOC.textContent='📝 导出 Word';
+ const exportPDF=document.createElement('button');
+ exportPDF.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ exportPDF.textContent='🖨️ 打印/导出 PDF';
+ exportGroup.appendChild(exportMD);
+ exportGroup.appendChild(exportDOC);
+ exportGroup.appendChild(exportPDF);
+ formHead.appendChild(formTitle);
+ formHead.appendChild(exportGroup);
+ formBox.appendChild(formHead);
+ const form=document.createElement('div');
+ form.className='space-y-4';
+ formBox.appendChild(form);
+ const printArea=document.createElement('div');
+ printArea.id='printArea';
+ printArea.className='hidden';
+ formBox.appendChild(printArea);
+ container.appendChild(listBox);
+ container.appendChild(formBox);
+ root.appendChild(container);
+ let editingId=null;
+ function openOutlineModal(){
+   const overlay=document.createElement('div');
+   overlay.className='fixed inset-0 bg-black/20 flex items-center justify-center z-50';
+   const panel=document.createElement('div');
+   panel.className='w-full max-w-lg rounded-lg border border-gray-200 bg-white p-4';
+   const title=document.createElement('div');
+   title.className='text-sm font-medium mb-2';
+   title.textContent='编辑默认提纲（每行一个问题）';
+   const ta=document.createElement('textarea');
+   ta.className='w-full h-48 rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   ta.value=(proj.interviewTemplate||[]).join('\n');
+   const actions=document.createElement('div');
+   actions.className='mt-3 flex items-center justify-end gap-2';
+   const cancel=document.createElement('button');
+   cancel.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   cancel.textContent='取消';
+   const saveBtn=document.createElement('button');
+   saveBtn.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   saveBtn.textContent='保存';
+   actions.appendChild(cancel);
+   actions.appendChild(saveBtn);
+   panel.appendChild(title);
+   panel.appendChild(ta);
+   panel.appendChild(actions);
+   overlay.appendChild(panel);
+   document.body.appendChild(overlay);
+   cancel.onclick=()=>{ document.body.removeChild(overlay); };
+   saveBtn.onclick=()=>{
+     const lines=ta.value.split('\n').map(x=>x.trim()).filter(x=>x.length>0);
+     proj.interviewTemplate=lines;
+     save();
+     document.body.removeChild(overlay);
+   };
+ }
+ function today(){
+   const d=new Date();
+   const yyyy=d.getFullYear();
+   const mm=String(d.getMonth()+1).padStart(2,'0');
+   const dd=String(d.getDate()).padStart(2,'0');
+   return `${yyyy}-${mm}-${dd}`;
+ }
+ function input(cls, placeholder){
+   const i=document.createElement('input');
+   i.className=cls || 'w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   if(placeholder) i.placeholder=placeholder;
+   return i;
+ }
+ function textarea(cls, placeholder){
+   const t=document.createElement('textarea');
+   t.className=cls || 'w-full rounded px-3 py-2 text-sm bg-white border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none';
+   if(placeholder) t.placeholder=placeholder;
+   return t;
+ }
+function exportWord(current){
+  const n=current.name && current.name.trim()? current.name.trim(): '未命名';
+  const d=current.date && current.date.trim()? current.date.trim(): today();
+  const safe=s=>s.replace(/[\\/:*?"<>|]/g,'_');
+  const fname=`访谈记录_${safe(n)}_${safe(d)}.doc`;
+  const html=`<!doctype html>
+<html><head><meta charset="utf-8">
+<title>访谈记录</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;line-height:1.6}
+h1{font-size:20px;font-weight:700;margin:0 0 8px}
+h2{font-size:16px;font-weight:700;margin:16px 0 6px}
+p{margin:6px 0}
+.block{margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa}
+.qa{margin:10px 0;padding:8px;border-left:3px solid #e5e7eb}
+.q{font-weight:600;margin-bottom:4px}
+.a{margin-left:0}
+</style></head><body>
+<h1>访谈记录：${n}</h1>
+<p>日期：${d}</p>
+<div class="block"><h2>用户背景</h2><p>${(current.background||'').replace(/</g,'&lt;')}</p></div>
+<div class="block"><h2>核心痛点</h2><p>${(current.pain||'').replace(/</g,'&lt;')}</p></div>
+<h2>访谈详情</h2>
+${(current.notes||[]).map(pair=>`
+<div class="qa">
+  <div class="q">Q: ${((pair.question||'').replace(/</g,'&lt;'))}</div>
+  <div class="a">A: ${((pair.answer||'').replace(/</g,'&lt;'))}</div>
+</div>`).join('')}
+<div class="block"><h2>备注</h2><p>${(current.remark||'').replace(/</g,'&lt;')}</p></div>
+</body></html>`;
+  const blob=new Blob([html],{type:'application/msword;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=fname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function buildPrintHTML(current){
+  const n=current.name && current.name.trim()? current.name.trim(): '未命名';
+  const d=current.date && current.date.trim()? current.date.trim(): today();
+  const printArea=document.getElementById('printArea');
+  if(!printArea) return;
+  printArea.innerHTML=`
+  <div style="padding:24px;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei','Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans',sans-serif">
+    <h1 style="font-size:20px;font-weight:700;margin:0 0 8px">访谈记录：${n}</h1>
+    <p style="margin:6px 0">日期：${d}</p>
+    <div style="margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa">
+      <h2 style="font-size:16px;font-weight:700;margin:0 0 6px">用户背景</h2>
+      <p>${(current.background||'').replace(/</g,'&lt;')}</p>
+    </div>
+    <div style="margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa">
+      <h2 style="font-size:16px;font-weight:700;margin:0 0 6px">核心痛点</h2>
+      <p>${(current.pain||'').replace(/</g,'&lt;')}</p>
+    </div>
+    <h2 style="font-size:16px;font-weight:700;margin:16px 0 6px">访谈详情</h2>
+    ${(current.notes||[]).map(pair=>`
+      <div style="margin:10px 0;padding:8px;border-left:3px solid #e5e7eb">
+        <div style="font-weight:600;margin-bottom:4px">Q: ${((pair.question||'').replace(/</g,'&lt;'))}</div>
+        <div>A: ${((pair.answer||'').replace(/</g,'&lt;'))}</div>
+      </div>`).join('')}
+    <div style="margin:10px 0;padding:8px;border:1px solid #e5e7eb;border-radius:6px;background:#fafafa">
+      <h2 style="font-size:16px;font-weight:700;margin:0 0 6px">备注</h2>
+      <p>${(current.remark||'').replace(/</g,'&lt;')}</p>
+    </div>
+  </div>`;
+}
+ function exportMarkdown(current){
+   const n=current.name && current.name.trim()? current.name.trim(): '未命名';
+   const d=current.date && current.date.trim()? current.date.trim(): today();
+   let md='';
+   md+=`访谈记录：${n}\n`;
+   md+=`日期：${d}\n\n`;
+   md+=`用户背景：${(current.background||'').trim()}\n\n`;
+   md+=`核心痛点：${(current.pain||'').trim()}\n\n`;
+   md+=`访谈详情\n`;
+   (current.notes||[]).forEach(pair=>{
+     const q=(pair.question||'').trim();
+     const a=(pair.answer||'').trim();
+     md+=`\nQ: ${q}\n\nA: ${a}\n`;
+   });
+   md+=`\n备注：${(current.remark||'').trim()}\n`;
+   const safe=s=>s.replace(/[\\/:*?"<>|]/g,'_');
+   const fname=`访谈记录_${safe(n)}_${safe(d)}.md`;
+   const blob=new Blob([md],{type:'text/markdown;charset=utf-8'});
+   const url=URL.createObjectURL(blob);
+   const a=document.createElement('a');
+   a.href=url;
+   a.download=fname;
+   document.body.appendChild(a);
+   a.click();
+   a.remove();
+   URL.revokeObjectURL(url);
+ }
+ function renderList(){
+   list.innerHTML='';
+   proj.interviews.forEach(item=>{
+     const row=document.createElement('button');
+     row.className='w-full text-left rounded border border-gray-200 px-3 py-2 hover:bg-gray-50';
+     row.innerHTML=`<div class="text-sm font-medium">${item.name||'未命名'}</div><div class="text-xs text-gray-500 mt-0.5">${item.date||''}</div>`;
+     row.onclick=()=>{ loadForm(item.id); };
+     list.appendChild(row);
+   });
+   if(proj.interviews.length===0){
+     const empty=document.createElement('div');
+     empty.className='text-xs text-gray-500';
+     empty.textContent='暂无访谈记录，点击“新增访谈”开始添加。';
+     list.appendChild(empty);
+   }
+ }
+ function loadForm(id){
+   form.innerHTML='';
+   let data;
+   if(id){
+     data=proj.interviews.find(x=>x.id===id);
+     editingId=id;
+   }else{
+    const templ=(proj.interviewTemplate||[]);
+    data={id:String(Date.now()),name:'',date:today(),background:'',pain:'',remark:'',notes:(templ.length? templ.map(q=>({question:q,answer:''})):[{question:'',answer:''}])};
+     editingId=null;
+   }
+ const row1=document.createElement('div');
+ row1.className='grid grid-cols-1 md:grid-cols-2 gap-3 rounded-md bg-gray-50 p-3';
+   const nameLabel=document.createElement('div');
+   nameLabel.className='text-xs text-gray-600';
+   nameLabel.textContent='姓名';
+   const nameInput=input();
+   nameInput.value=data.name||'';
+  nameInput.oninput=()=>{ data.name=nameInput.value; };
+   const dateLabel=document.createElement('div');
+   dateLabel.className='text-xs text-gray-600';
+   dateLabel.textContent='日期';
+   const dateInput=input();
+   dateInput.type='date';
+   dateInput.value=data.date||today();
+  dateInput.oninput=()=>{ data.date=dateInput.value; };
+   const nameField=document.createElement('div');
+   nameField.appendChild(nameLabel);
+   nameField.appendChild(nameInput);
+   const dateField=document.createElement('div');
+   dateField.appendChild(dateLabel);
+   dateField.appendChild(dateInput);
+   row1.appendChild(nameField);
+   row1.appendChild(dateField);
+ const bgField=document.createElement('div');
+ bgField.className='rounded-md bg-gray-50 p-3';
+   const bgLabel=document.createElement('div');
+   bgLabel.className='text-xs text-gray-600';
+   bgLabel.textContent='用户背景';
+   const bgText=textarea();
+   bgText.value=data.background||'';
+  bgText.oninput=()=>{ data.background=bgText.value; };
+   const bgHint=document.createElement('div');
+   bgHint.className='text-xs text-gray-400 mt-1';
+   bgHint.textContent='请描述用户的基本信息、使用场景及职业背景';
+   bgField.appendChild(bgLabel);
+   bgField.appendChild(bgText);
+   bgField.appendChild(bgHint);
+ const painField=document.createElement('div');
+ painField.className='rounded-md bg-gray-50 p-3';
+   const painLabel=document.createElement('div');
+   painLabel.className='text-xs text-gray-600';
+   painLabel.textContent='核心痛点';
+   const painText=textarea();
+   painText.value=data.pain||'';
+  painText.oninput=()=>{ data.pain=painText.value; };
+   painField.appendChild(painLabel);
+   painField.appendChild(painText);
+ const remarkField=document.createElement('div');
+ remarkField.className='rounded-md bg-gray-50 p-3';
+   const remarkLabel=document.createElement('div');
+   remarkLabel.className='text-xs text-gray-600';
+   remarkLabel.textContent='备注';
+   const remarkText=textarea();
+   remarkText.value=data.remark||'';
+  remarkText.oninput=()=>{ data.remark=remarkText.value; };
+   remarkField.appendChild(remarkLabel);
+   remarkField.appendChild(remarkText);
+ const notesWrap=document.createElement('div');
+ notesWrap.className='rounded-lg border border-gray-200 bg-gray-100 p-3';
+   const notesHead=document.createElement('div');
+   notesHead.className='flex items-center justify-between mb-2';
+   const notesTitle=document.createElement('div');
+   notesTitle.className='text-xs font-medium';
+   notesTitle.textContent='详细笔记（问题-回答）';
+   const addPoint=document.createElement('button');
+   addPoint.className='text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   addPoint.textContent='添加访谈点';
+   notesHead.appendChild(notesTitle);
+   notesHead.appendChild(addPoint);
+   const notesList=document.createElement('div');
+   notesList.className='space-y-3';
+   notesWrap.appendChild(notesHead);
+   notesWrap.appendChild(notesList);
+   function renderNotes(){
+     notesList.innerHTML='';
+     if(!data.notes||data.notes.length===0) data.notes=[{question:'',answer:''}];
+     data.notes.forEach((pair,idx)=>{
+       const item=document.createElement('div');
+      item.className='grid grid-cols-1 md:grid-cols-2 gap-3';
+       const qField=document.createElement('div');
+       const qLabel=document.createElement('div');
+       qLabel.className='text-xs text-gray-600';
+       qLabel.textContent=`问题 ${idx+1}`;
+      const qInput=input('w-full rounded px-3 py-2 text-sm bg-gray-50 border border-transparent focus:border-blue-300 focus:ring-1 focus:ring-blue-200 outline-none font-medium');
+       qInput.value=pair.question||'';
+       qField.appendChild(qLabel);
+       qField.appendChild(qInput);
+       const aField=document.createElement('div');
+       const aLabel=document.createElement('div');
+       aLabel.className='text-xs text-gray-600';
+       aLabel.textContent=`回答 ${idx+1}`;
+       const aInput=textarea();
+       aInput.value=pair.answer||'';
+       aField.appendChild(aLabel);
+       aField.appendChild(aInput);
+       qInput.oninput=()=>{ pair.question=qInput.value; };
+       aInput.oninput=()=>{ pair.answer=aInput.value; };
+      const remove=document.createElement('button');
+      remove.className='justify-self-start md:justify-self-end text-xs px-2 py-1 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+      remove.textContent='删除该项';
+      remove.onclick=()=>{
+        data.notes.splice(idx,1);
+        renderNotes();
+      };
+       item.appendChild(qField);
+       item.appendChild(aField);
+      item.appendChild(remove);
+       notesList.appendChild(item);
+     });
+   }
+   addPoint.onclick=()=>{
+     data.notes.push({question:'',answer:''});
+     renderNotes();
+   };
+   renderNotes();
+  exportMD.onclick=()=>{ exportMarkdown(data); };
+  exportDOC.onclick=()=>{ exportWord(data); };
+  exportPDF.onclick=()=>{ buildPrintHTML(data); alert('请在弹出的打印窗口中选择“另存为 PDF”'); window.print(); };
+   const actions=document.createElement('div');
+   actions.className='flex items-center gap-2';
+   const saveBtn=document.createElement('button');
+   saveBtn.className='text-sm px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   saveBtn.textContent='保存';
+   const delBtn=document.createElement('button');
+   delBtn.className='text-sm px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+   delBtn.textContent='删除';
+   actions.appendChild(saveBtn);
+   if(editingId) actions.appendChild(delBtn);
+   saveBtn.onclick=()=>{
+     data.name=nameInput.value.trim();
+     data.date=dateInput.value||today();
+     data.background=bgText.value;
+     data.pain=painText.value;
+     data.remark=remarkText.value;
+    proj.interviewLastModified=today();
+    proj.interviewUpdatedAt=nowMs();
+    proj.updatedAt=nowMs();
+     if(editingId){
+       const idx=proj.interviews.findIndex(x=>x.id===editingId);
+       if(idx>=0) proj.interviews[idx]=data;
+     }else{
+       proj.interviews.push(data);
+       editingId=data.id;
+     }
+     save();
+     renderList();
+   };
+   delBtn.onclick=()=>{
+     if(!editingId) return;
+     if(confirm('删除该访谈记录？')){
+       proj.interviews=proj.interviews.filter(x=>x.id!==editingId);
+       save();
+       editingId=null;
+       form.innerHTML='';
+       renderList();
+     }
+   };
+   form.appendChild(row1);
+   form.appendChild(bgField);
+   form.appendChild(painField);
+   form.appendChild(remarkField);
+   form.appendChild(notesWrap);
+   form.appendChild(actions);
+ }
+ addBtn.onclick=()=>{ loadForm(null); };
+ outlineBtn.onclick=()=>{ openOutlineModal(); };
+ renderList();
+ if(_openTarget && _openTarget.type==='interview'){ loadForm(_openTarget.id); _openTarget=null; }
+}
+function createProject(){
+ const val=prompt('新建项目名称');
+ if(!val||!val.trim()) return;
+ const id=String(Date.now());
+ projects.push({id,name:val.trim(),title:val.trim(),description:'',insights:'',updatedAt:Date.now(),surveyUpdatedAt:0,interviewUpdatedAt:0,focusUpdatedAt:0});
+ selected=id;
+ save(); render();
+}
+function render(){
+ renderProjects();
+ renderContent();
+}
+function showAboutModal(){
+ const overlay=document.createElement('div');
+ overlay.className='fixed inset-0 bg-black/20 flex items-center justify-center z-50';
+ const panel=document.createElement('div');
+ panel.className='w-full max-w-md rounded-lg border border-gray-200 bg-white p-4';
+ const title=document.createElement('div');
+ title.className='text-sm font-medium mb-2';
+ title.textContent='作品说明';
+ const body=document.createElement('div');
+ body.className='text-sm text-gray-700';
+ body.innerHTML='1. 开发背景<br/>本项目由产品经理-登登通过 Trae (AI 驱动) 完成开发，旨在将用户研究数据（访谈、问卷、焦点小组）散落在文档、表格及第三方平台导致的信息孤岛问题。 通过结构化的项目管理逻辑，实现用户调研资产的沉淀与复用。<br/><br/>2. 技术栈 (Technical Stack)<br/>本项目采用 Vibe Coding 模式，AI 协作完成代码实现：<br/>前端框架：HTML5 + Tailwind CSS (实现极简 Notion 风格 UI)。<br/>开发工具：Trae。<br/>数据存储：LocalStorage (轻量级本地化存储，保护商业调研隐私)。<br/>部署平台：Vercel / 阿里云 OSS (实现静态资源的极速访问)。';
+ const actions=document.createElement('div');
+ actions.className='mt-3 flex items-center justify-end';
+ const close=document.createElement('button');
+ close.className='text-xs px-3 py-1.5 rounded border border-gray-300 bg-gray-100 text-gray-700 hover:bg-gray-200';
+ close.textContent='关闭';
+ actions.appendChild(close);
+ panel.appendChild(title);
+ panel.appendChild(body);
+ panel.appendChild(actions);
+ overlay.appendChild(panel);
+ document.body.appendChild(overlay);
+ close.onclick=()=>{ document.body.removeChild(overlay); };
+ overlay.onclick=(e)=>{ if(e.target===overlay){ document.body.removeChild(overlay); } };
+}
+document.getElementById('createProject').onclick=createProject;
+document.getElementById('goHome').onclick=()=>{ selected=null; save(); render(); };
+document.getElementById('backupBtn').onclick=()=>{
+ const data={projects};
+ const d=new Date();
+ const yyyy=d.getFullYear();
+ const mm=String(d.getMonth()+1).padStart(2,'0');
+ const dd=String(d.getDate()).padStart(2,'0');
+ const fname=`用户研究数据备份_${yyyy}-${mm}-${dd}.json`;
+ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement('a');
+ a.href=url; a.download=fname; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+};
+document.getElementById('restoreBtn').onclick=()=>{
+ const ok=confirm('此操作将替换当前所有数据，建议先导出当前数据备份，确定继续吗？');
+ if(!ok) return;
+ document.getElementById('restoreInput').click();
+};
+document.getElementById('restoreInput').onchange=(e)=>{
+ const file=e.target.files && e.target.files[0];
+ if(!file) return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+   try{
+     const obj=JSON.parse(String(reader.result||'{}'));
+     if(obj && obj.projects){
+       localStorage.setItem(LS_KEY,JSON.stringify(obj.projects));
+       localStorage.setItem(LS_SELECTED,'');
+       location.reload();
+     }else{
+       alert('备份文件格式不正确');
+     }
+   }catch(err){
+     alert('解析失败，请检查文件内容');
+   }
+ };
+ reader.readAsText(file);
+};
+document.getElementById('aboutBtn').onclick=()=>{ showAboutModal(); };
+load();
+render();
+</script>
+</body>
+</html>
